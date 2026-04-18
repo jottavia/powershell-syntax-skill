@@ -1,0 +1,198 @@
+---
+name: powershell-syntax
+description: Proven PowerShell syntax patterns that compile and run correctly. Use this skill whenever writing, editing, or reviewing PowerShell (.ps1, .psm1) scripts, Windows automation, admin scripts, registry/service/process code, or any code block tagged `powershell`. Consult before writing PowerShell to avoid common syntax errors (array/hashtable `@`, `if ()` parens, operator form `-eq`/`-and`, try/catch, splatting).
+disable-model-invocation: true
+version: "1.0"
+---
+
+# PowerShell Syntax Reference
+
+Verified patterns. Use these verbatim; deviations below cause parse or runtime errors.
+
+## Script header
+```powershell
+<#
+.SYNOPSIS  Brief
+.DESCRIPTION  Detail
+.NOTES  Version
+#>
+[CmdletBinding()]
+param(
+    [string[]]$ArrayParam = @(),
+    [string]$StringParam = 'Default'
+)
+```
+
+## Admin elevation
+```powershell
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell.exe -Verb RunAs -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $MyInvocation.MyCommand.Path)
+    exit
+}
+```
+
+## Variables, arrays, hashtables
+```powershell
+$s = "text"; $n = 123; $b = $true; $x = $null
+$arr = @("a","b","c")            # MUST use @() for arrays
+$empty = @()
+$list = [System.Collections.ArrayList]@()
+$h = @{ Key1 = "v"; Key2 = 2 }   # MUST use @{} for hashtables
+$nested = @{ Outer = @{ Inner = "v" }; Arr = @("a","b") }
+
+# String expansion
+"Hello $name, $(Get-Date)"        # double quotes expand
+"Result: $($obj.Property)"        # subexpression for member access
+'Literal $var'                    # single quotes do NOT expand
+```
+
+## Conditionals
+```powershell
+if ($c -eq $true) { } elseif ($c2) { } else { }
+if (($a -eq "x") -and ($b -gt 10)) { }
+if (Test-Path $p) { }
+if (-not (Test-Path $p)) { }
+```
+
+Operators (word form only, never `==`/`!=`/`>`/`<`):
+`-eq -ne -gt -lt -ge -le -like -match -contains -in -and -or -not`
+
+## Loops
+```powershell
+foreach ($item in $coll) { }
+foreach ($k in $h.Keys) { $v = $h[$k] }
+$coll | ForEach-Object { $_ }
+for ($i = 0; $i -lt $arr.Count; $i++) { }
+while ($c) { }
+```
+
+## Functions
+```powershell
+function Verb-Noun {
+    param(
+        [Parameter(Mandatory=$true)][string]$Required,
+        [int]$Optional = 10,
+        [switch]$Flag
+    )
+    try { return $result } catch { Write-Error "Failed: $_"; throw }
+}
+
+# Splatting
+$p = @{ Required = "v"; Optional = 20 }
+Verb-Noun @p
+```
+
+## Error handling
+```powershell
+try {
+    Some-Command -ErrorAction Stop
+} catch [System.IO.FileNotFoundException] {
+    # typed catch (optional)
+} catch {
+    Write-Error "Failed: $_"        # or $($_.Exception.Message)
+} finally {
+    # cleanup
+}
+```
+
+## Files and paths
+```powershell
+$full = Join-Path $base $name
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+
+$content = Get-Content $p -Encoding UTF8
+$content | Out-File -FilePath $out -Encoding UTF8 -Force
+$data | ConvertTo-Json -Depth 4 | Out-File $j -Encoding UTF8
+$obj = Get-Content $j | ConvertFrom-Json
+Copy-Item -Path $src -Destination $dst -Force
+Remove-Item -Path $p -Recurse -Force
+```
+
+## Registry
+```powershell
+$rp = "HKLM:\SOFTWARE\Path"
+if (-not (Test-Path $rp)) { New-Item -Path $rp -Force | Out-Null }
+Set-ItemProperty -Path $rp -Name "N" -Value "v" -Type String
+Set-ItemProperty -Path $rp -Name "N" -Value 1 -Type DWord
+Set-ItemProperty -Path $rp -Name "N" -Value ([byte[]](1,2,3)) -Type Binary
+Set-ItemProperty -Path $rp -Name "N" -Value @("a","b") -Type MultiString
+$v = Get-ItemProperty -Path $rp -Name "N" -ErrorAction SilentlyContinue
+```
+
+Types: `String`, `DWord`, `Binary`, `MultiString`, `ExpandString`, `QWord`.
+
+## Services and processes
+```powershell
+$svc = Get-Service -Name "N" -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -eq 'Running') { }
+Start-Service -Name "N" -ErrorAction SilentlyContinue
+Stop-Service -Name "N" -Force -ErrorAction SilentlyContinue
+Set-Service -Name "N" -StartupType Disabled
+
+$proc = Start-Process -FilePath "p.exe" -ArgumentList "/silent" -Wait -PassThru
+if ($proc.ExitCode -eq 0) { }
+Stop-Process -Name "N" -Force -ErrorAction SilentlyContinue
+```
+
+## Strings
+```powershell
+"{0} = {1}" -f $a, $b
+$s -replace "old","new"
+$s -split ","                  # or $s.Split(",")
+$arr -join ","
+$s.Trim(); $s.ToUpper(); $s.ToLower()
+```
+
+## Collections / pipeline
+```powershell
+$coll | Select-Object Name, Value
+$coll | Where-Object { $_.Prop -eq "v" }
+$coll | Where-Object Prop -eq "v"
+$coll | Sort-Object Name -Descending
+$coll | Group-Object Name
+($coll | Measure-Object).Count
+($coll | Measure-Object -Property N -Sum).Sum
+
+$list = [System.Collections.ArrayList]@()
+$list.Add("x") | Out-Null         # suppress index return
+$arr += "x"                       # creates new array (slow in loops)
+$arr[0]; $arr[-1]; $arr[1..3]
+```
+
+## Dates
+```powershell
+Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'    # filename-safe
+(Get-Date).AddDays(-7)
+```
+
+## Output
+```powershell
+Write-Host "msg" -ForegroundColor Green    # console only, not pipeline
+Write-Output $data                          # pipeline
+Write-Error "e"; Write-Warning "w"; Write-Verbose "v"
+
+$here = @"
+multi-line
+$variable expands
+"@
+```
+
+## Do not do this
+```powershell
+$a = ("x","y")          # WRONG - missing @, becomes a scalar string in some contexts
+$h = { K = "v" }        # WRONG - this is a scriptblock, not a hashtable
+if $c { }               # WRONG - condition needs parens
+$a == $b                # WRONG - use -eq
+$a != $b                # WRONG - use -ne
+"$var+text"             # ambiguous - use "${var}+text" or "$var text"
+Get-ChildItem /Path     # prefer named params: -Path
+```
+
+## Param style
+Always hyphenated named parameters (`-Path`, `-Recurse`). Splat hashtables for 3+ params:
+```powershell
+$p = @{ Path = "C:\"; Filter = "*.txt"; Recurse = $true }
+Get-ChildItem @p
+```
