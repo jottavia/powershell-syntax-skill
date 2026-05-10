@@ -2,7 +2,7 @@
 name: powershell-syntax
 description: Proven PowerShell syntax patterns that compile and run correctly. Use this skill whenever writing, editing, or reviewing PowerShell (.ps1, .psm1) scripts, Windows automation, admin scripts, registry/service/process code, or any code block tagged `powershell`. Consult before writing PowerShell to avoid common syntax errors (array/hashtable `@`, `if ()` parens, operator form `-eq`/`-and`, try/catch, splatting).
 disable-model-invocation: true
-version: "1.0"
+version: "1.1"
 ---
 
 # PowerShell Syntax Reference
@@ -196,3 +196,48 @@ Always hyphenated named parameters (`-Path`, `-Recurse`). Splat hashtables for 3
 $p = @{ Path = "C:\"; Filter = "*.txt"; Recurse = $true }
 Get-ChildItem @p
 ```
+
+## Compress-Archive: directory structure pitfall
+
+`Compress-Archive` FLATTENS paths when given a file list. This is the single most common source of broken zips.
+
+### Wrong — produces a flat zip
+```powershell
+# Files end up at zip root with NO directory structure
+Compress-Archive -Path "CLAUDE.md", ".claude/settings.json", ".claude/skills/foo/SKILL.md" `
+                 -DestinationPath out.zip
+```
+
+When extracted, the user sees `CLAUDE.md`, `settings.json`, `SKILL.md` all in one flat directory. The `.claude/skills/foo/` hierarchy is GONE.
+
+### Right — stage first, then compress
+```powershell
+$staging = Join-Path $env:TEMP "stage-$(Get-Random)"
+New-Item -ItemType Directory -Path $staging -Force | Out-Null
+
+# Recreate the directory structure inside staging
+foreach ($file in $fileList) {
+    $dest = Join-Path $staging $file
+    $destDir = Split-Path $dest -Parent
+    if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+    Copy-Item $file $dest
+}
+
+# Compress the staging dir — paths preserved
+Compress-Archive -Path "$staging\*" -DestinationPath out.zip -Force
+
+# Cleanup
+Remove-Item $staging -Recurse -Force
+```
+
+### Verify before shipping
+```powershell
+# Always check structure after building
+Expand-Archive -Path out.zip -DestinationPath verify-tmp -Force
+Get-ChildItem verify-tmp -Recurse -Name | Sort-Object
+Remove-Item verify-tmp -Recurse -Force
+```
+
+If you see `SKILL.md` at the root instead of `.claude/skills/foo/SKILL.md`, you flattened.
+
+**Alternative — use tar (Windows 10+):** `tar -cf out.zip --format=zip ...` preserves paths natively, but its archive flag semantics differ from Compress-Archive. Use `Compress-Archive` with proper staging for portability.

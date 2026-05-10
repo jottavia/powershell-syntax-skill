@@ -2,6 +2,8 @@
 
 A Claude Code skill providing verified PowerShell syntax patterns that compile and run correctly. Prevents common parse errors with arrays, hashtables, operators, conditionals, and more.
 
+**Current version:** 1.1
+
 ## Install
 
 Copy the skill directory to your project:
@@ -41,11 +43,20 @@ Set `disable-model-invocation: true` (default) to prevent auto-loading on every 
 - Collections and pipeline
 - Date formatting
 - Common mistakes to avoid
+- **Compress-Archive directory structure pitfall** (new in 1.1) — most common cause of broken zip releases
 
 ## Context Cost
 
 - **With `disable-model-invocation: true`:** ~30 tokens (description only, loaded when you type `/powershell-syntax`)
 - **Without:** ~400 lines loaded every time Claude writes PowerShell
+
+## Changelog
+
+### v1.1
+- Added `Compress-Archive` directory structure section: documents the flatten-paths pitfall, shows correct staging pattern, and verification step
+
+### v1.0
+- Initial release with core syntax patterns
 
 ## License
 
