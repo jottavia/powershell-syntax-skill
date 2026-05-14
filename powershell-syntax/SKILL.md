@@ -1,13 +1,35 @@
 ---
 name: powershell-syntax
-description: Proven PowerShell syntax patterns that compile and run correctly. Use this skill whenever writing, editing, or reviewing PowerShell (.ps1, .psm1) scripts, Windows automation, admin scripts, registry/service/process code, or any code block tagged `powershell`. Consult before writing PowerShell to avoid common syntax errors (array/hashtable `@`, `if ()` parens, operator form `-eq`/`-and`, try/catch, splatting).
+description: Proven PowerShell syntax patterns that compile and run correctly. Use this skill whenever writing, editing, or reviewing PowerShell (.ps1, .psm1) scripts, Windows automation, admin scripts, registry/service/process code, or any code block tagged `powershell`. Consult before writing PowerShell to avoid common syntax errors (array/hashtable `@`, `if ()` parens, operator form `-eq`/`-and`, try/catch, splatting) and ASCII-only output enforcement.
 disable-model-invocation: true
-version: "1.1"
+version: "1.2"
 ---
 
 # PowerShell Syntax Reference
 
 Verified patterns. Use these verbatim; deviations below cause parse or runtime errors.
+
+## ASCII only - no em-dashes anywhere
+
+Claude must not emit em-dashes, en-dashes, curly quotes, ellipsis, non-breaking spaces, or any non-ASCII punctuation. This is a global output rule (see framework `CLAUDE.md`); PowerShell makes it especially load-bearing because Unicode in `.ps1`/`.psm1` files causes:
+
+- Parse errors when the file is saved without a BOM
+- Inconsistent behavior across PowerShell 5.1 vs 7.x
+- Silent breakage of string comparisons that look identical but are not byte-identical
+
+| Wrong (Unicode) | Right (ASCII) |
+|:--|:--|
+| em-dash `U+2014` | ` - ` or `--` |
+| en-dash `U+2013` | `-` |
+| curly quotes `U+201C` `U+201D` `U+2018` `U+2019` | `"` `'` |
+| ellipsis `U+2026` | `...` |
+| non-breaking space `U+00A0` | regular space |
+
+Verify a file is clean:
+
+```powershell
+Get-Content .\script.ps1 | Select-String -Pattern '[^\x00-\x7F]'  # empty = clean
+```
 
 ## Script header
 ```powershell
@@ -201,7 +223,7 @@ Get-ChildItem @p
 
 `Compress-Archive` FLATTENS paths when given a file list. This is the single most common source of broken zips.
 
-### Wrong — produces a flat zip
+### Wrong - produces a flat zip
 ```powershell
 # Files end up at zip root with NO directory structure
 Compress-Archive -Path "CLAUDE.md", ".claude/settings.json", ".claude/skills/foo/SKILL.md" `
@@ -210,7 +232,7 @@ Compress-Archive -Path "CLAUDE.md", ".claude/settings.json", ".claude/skills/foo
 
 When extracted, the user sees `CLAUDE.md`, `settings.json`, `SKILL.md` all in one flat directory. The `.claude/skills/foo/` hierarchy is GONE.
 
-### Right — stage first, then compress
+### Right - stage first, then compress
 ```powershell
 $staging = Join-Path $env:TEMP "stage-$(Get-Random)"
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -223,7 +245,7 @@ foreach ($file in $fileList) {
     Copy-Item $file $dest
 }
 
-# Compress the staging dir — paths preserved
+# Compress the staging dir - paths preserved
 Compress-Archive -Path "$staging\*" -DestinationPath out.zip -Force
 
 # Cleanup
@@ -240,4 +262,4 @@ Remove-Item verify-tmp -Recurse -Force
 
 If you see `SKILL.md` at the root instead of `.claude/skills/foo/SKILL.md`, you flattened.
 
-**Alternative — use tar (Windows 10+):** `tar -cf out.zip --format=zip ...` preserves paths natively, but its archive flag semantics differ from Compress-Archive. Use `Compress-Archive` with proper staging for portability.
+**Alternative - use tar (Windows 10+):** `tar -cf out.zip --format=zip ...` preserves paths natively, but its archive flag semantics differ from Compress-Archive. Use `Compress-Archive` with proper staging for portability.
