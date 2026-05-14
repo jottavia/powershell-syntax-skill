@@ -2,7 +2,7 @@
 
 A Claude Code skill providing verified PowerShell syntax patterns that compile and run correctly. Prevents common parse errors with arrays, hashtables, operators, conditionals, and more.
 
-**Current version:** 1.1
+**Current version:** 1.2
 
 ## Install
 
@@ -28,6 +28,7 @@ Set `disable-model-invocation: true` (default) to prevent auto-loading on every 
 
 ## What's Covered
 
+- ASCII-only output enforcement (no em-dashes, en-dashes, curly quotes, ellipsis, non-breaking spaces) with verification command
 - Script headers and CmdletBinding
 - Admin elevation pattern
 - Variables, arrays (`@()`), hashtables (`@{}`)
@@ -43,7 +44,7 @@ Set `disable-model-invocation: true` (default) to prevent auto-loading on every 
 - Collections and pipeline
 - Date formatting
 - Common mistakes to avoid
-- **Compress-Archive directory structure pitfall** (new in 1.1) — most common cause of broken zip releases
+- **Compress-Archive directory structure pitfall**: most common cause of broken zip releases
 
 ## Context Cost
 
@@ -51,6 +52,9 @@ Set `disable-model-invocation: true` (default) to prevent auto-loading on every 
 - **Without:** ~400 lines loaded every time Claude writes PowerShell
 
 ## Changelog
+
+### v1.2
+- Added ASCII-only section near top: documents Unicode-punctuation pitfalls (em-dashes, en-dashes, curly quotes, ellipsis, non-breaking spaces, zero-width spaces) and provides a `Select-String` verification command for `.ps1`/`.psm1` files. Aligns with framework's Tenet 10 (ASCII Only). Em-dashes scrubbed from skill doc headings.
 
 ### v1.1
 - Added `Compress-Archive` directory structure section: documents the flatten-paths pitfall, shows correct staging pattern, and verification step
