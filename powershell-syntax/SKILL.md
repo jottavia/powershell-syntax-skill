@@ -1,8 +1,8 @@
 ---
 name: powershell-syntax
-description: Proven PowerShell syntax patterns that compile and run correctly. Use this skill whenever writing, editing, or reviewing PowerShell (.ps1, .psm1) scripts, Windows automation, admin scripts, registry/service/process code, or any code block tagged `powershell`. Consult before writing PowerShell to avoid common syntax errors (array/hashtable `@`, `if ()` parens, operator form `-eq`/`-and`, try/catch, splatting) and ASCII-only output enforcement.
+description: Proven PowerShell syntax patterns that compile and run correctly. Use this skill whenever writing, editing, or reviewing PowerShell (.ps1, .psm1) scripts, Windows automation, admin scripts, registry/service/process code, or any code block tagged `powershell`. Consult before writing PowerShell to avoid common syntax errors (array/hashtable `@`, `if ()` parens, operator form `-eq`/`-and`, try/catch, splatting), ASCII-only output enforcement, and encoding/BOM safety for files consumed by strict parsers (Node, Electron, jq, browsers).
 disable-model-invocation: true
-version: "1.2"
+version: "1.3"
 ---
 
 # PowerShell Syntax Reference
@@ -23,7 +23,9 @@ Claude must not emit em-dashes, en-dashes, curly quotes, ellipsis, non-breaking 
 | en-dash `U+2013` | `-` |
 | curly quotes `U+201C` `U+201D` `U+2018` `U+2019` | `"` `'` |
 | ellipsis `U+2026` | `...` |
+| right arrow `U+2192` | `->` |
 | non-breaking space `U+00A0` | regular space |
+| zero-width space `U+200B` | (delete) |
 
 Verify a file is clean:
 
@@ -123,13 +125,96 @@ $full = Join-Path $base $name
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 
-$content = Get-Content $p -Encoding UTF8
-$content | Out-File -FilePath $out -Encoding UTF8 -Force
-$data | ConvertTo-Json -Depth 4 | Out-File $j -Encoding UTF8
-$obj = Get-Content $j | ConvertFrom-Json
 Copy-Item -Path $src -Destination $dst -Force
 Remove-Item -Path $p -Recurse -Force
 ```
+
+For reads, writes, and JSON, see the next section. Do NOT use `Out-File -Encoding UTF8` or `Set-Content -Encoding UTF8` for files another process will parse.
+
+## File I/O - encoding and BOM safety
+
+PowerShell on Windows has default patterns that write a UTF-8 BOM (bytes `0xEF 0xBB 0xBF`). Strict consumers reject a leading BOM: Claude Desktop session JSON (Electron `JSON.parse`), Node, browsers fetching JSON, `jq`, most line-oriented parsers. PowerShell's own `ConvertFrom-Json` silently strips BOMs, so producer-side self-verification CANNOT catch this bug. You must verify at the byte level or with the actual consumer.
+
+### Reads (no encoding problem)
+```powershell
+$content = Get-Content $path -Raw                # default; OK for most reads
+$content = Get-Content $path -Raw -Encoding UTF8 # explicit; OK
+$bytes   = [System.IO.File]::ReadAllBytes($path) # for byte-level inspection
+$obj     = Get-Content $path -Raw | ConvertFrom-Json   # silently strips BOM; do not rely on this for verification
+```
+
+### Writes: BOM-introducing patterns to AVOID on PowerShell 5.x
+```powershell
+# DO NOT use these for files another process will parse:
+$data    | Out-File $path -Encoding UTF8                  # writes BOM
+$data    | ConvertTo-Json | Out-File $path -Encoding UTF8 # writes BOM
+$content | Set-Content $path -Encoding UTF8               # writes BOM
+$content | Add-Content $path -Encoding UTF8               # may write BOM on first write
+$data > $path                                             # depends on $OutputEncoding; default profile often UTF-16
+```
+
+### Writes: safe no-BOM patterns
+```powershell
+# Pattern A: .NET WriteAllText with explicit no-BOM UTF-8 (works on PS 5.1 and 7.x)
+[System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
+
+# Pattern B: StreamWriter for line-by-line or streaming writes (works on PS 5.1 and 7.x)
+$writer = [System.IO.StreamWriter]::new($path, $false, [System.Text.UTF8Encoding]::new($false))
+try {
+    foreach ($line in $lines) { $writer.WriteLine($line) }
+} finally { $writer.Close() }
+
+# Pattern C: PowerShell 7+ only - explicit no-BOM
+$data    | Out-File   -FilePath $path -Encoding utf8NoBOM
+$content | Set-Content -Path    $path -Encoding utf8NoBOM
+```
+
+### JSON-write helper (self-contained)
+
+Paste this function into your script. It is also shipped alongside this skill at `scripts/write-json-utf8.ps1`:
+
+```powershell
+function Write-JsonUtf8 {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] $Object,
+        [Parameter(Mandatory=$true)] [string]$Path,
+        [int]$Depth = 20,
+        [switch]$Compress
+    )
+    $json = if ($Compress) { $Object | ConvertTo-Json -Depth $Depth -Compress }
+            else           { $Object | ConvertTo-Json -Depth $Depth }
+    [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+        throw "Write-JsonUtf8: BOM appeared in $Path despite explicit no-BOM encoding. Investigate."
+    }
+}
+
+Write-JsonUtf8 -Object $data -Path $path -Depth 20
+```
+
+### Verifying a file has no BOM
+```powershell
+$bytes = [System.IO.File]::ReadAllBytes($path)
+$hasBom = ($bytes.Length -ge 3) -and ($bytes[0] -eq 0xEF) -and ($bytes[1] -eq 0xBB) -and ($bytes[2] -eq 0xBF)
+# $hasBom -eq $false means safe
+```
+
+### When to use which encoding
+
+| Target consumer | Safe encoding | Why |
+|:--|:--|:--|
+| Claude Desktop session JSON | UTF-8 no BOM | Electron `JSON.parse` rejects BOM |
+| `.ps1` script for re-execution with non-ASCII | UTF-8 with BOM (or pure ASCII; prefer ASCII per framework Tenet 10) | PS 5.1 mis-parses non-ASCII without BOM |
+| `.md` / `.txt` for humans | UTF-8 no BOM | Modern editors prefer no BOM |
+| `.jsonl` for Node / jq | UTF-8 no BOM | Strict line-parsers reject BOM |
+| `.csv` for Excel | UTF-8 with BOM | Excel uses BOM to detect UTF-8 |
+| Any file Claude Code or other Node tooling reads | UTF-8 no BOM | Node JSON parsers reject BOM |
+
+### Rule of thumb
+
+If another process will parse the file: **no BOM**. PowerShell as a writer needs to be told explicitly.
 
 ## Registry
 ```powershell
